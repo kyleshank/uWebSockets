@@ -224,8 +224,9 @@ public:
         WebSocketContextData<SSL> *webSocketContextData = (WebSocketContextData<SSL> *) us_socket_context_ext(SSL,
             (us_socket_context_t *) us_socket_context(SSL, (us_socket_t *) this)
         );
+        WebSocketData *webSocketData = (WebSocketData *) us_socket_ext(SSL, (us_socket_t *) this);
         /* Is the same as publishing per websocket context */
-        webSocketContextData->publish(topic, message, opCode, compress);
+        webSocketContextData->publish(topic, message, opCode, compress, webSocketData->subscriber);
     }
 };
 

@@ -62,6 +62,8 @@ struct Topic {
     std::map<unsigned int, std::pair<std::string, std::string>> messages;
 
     std::set<Subscriber *> subs;
+
+    std::map<unsigned int, Subscriber*> senders;
 };
 
 struct TopicTree {
@@ -123,7 +125,7 @@ private:
     }
 
     /* Should be getData and commit? */
-    void publish(Topic *iterator, size_t start, size_t stop, std::string_view topic, std::pair<std::string_view, std::string_view> message) {
+    void publish(Topic *iterator, size_t start, size_t stop, std::string_view topic, std::pair<std::string_view, std::string_view> message, Subscriber *sender) {
         /* If we already have 64 triggered topics make sure to drain it here */
         if (numTriggeredTopics == 64) {
             drain();
@@ -158,7 +160,7 @@ private:
 
             /* Do we have a wildcard child? */
             if (iterator->wildcardChild) {
-                publish(iterator->wildcardChild, stop + 1, stop, topic, message);
+                publish(iterator->wildcardChild, stop + 1, stop, topic, message, sender);
             }
 
             std::map<std::string_view, Topic *>::iterator it = iterator->children.find(segment);
@@ -172,6 +174,8 @@ private:
 
         /* If we went all the way we matched exactly */
         iterator->messages[messageId] = message;
+
+        iterator->senders[messageId] = sender;
 
         /* Add this topic to triggered */
         if (!iterator->triggered) {
@@ -246,8 +250,8 @@ public:
         }
     }
 
-    void publish(std::string_view topic, std::pair<std::string_view, std::string_view> message) {
-        publish(root, 0, 0, topic, message);
+    void publish(std::string_view topic, std::pair<std::string_view, std::string_view> message, Subscriber *subscriber) {
+        publish(root, 0, 0, topic, message, subscriber);
         messageId++;
     }
 
@@ -329,6 +333,7 @@ public:
                 /* If we no longer have any subscribers, yet still keep this Topic alive (parent),
                  * make sure to clear its potential messages. */
                 triggeredTopics[i]->messages.clear();
+                triggeredTopics[i]->senders.clear();
                 triggeredTopics[i]->triggered = false;
             }
         }
@@ -369,6 +374,9 @@ public:
                 std::map<unsigned int, std::pair<std::string, std::string>> *perSubscriberIntersectingTopicMessages[64];
                 int numPerSubscriberIntersectingTopicMessages = 0;
 
+                std::map<unsigned int, Subscriber*> *perSubscriberIntersectingTopicSenders[64];
+                int numPerSubscriberIntersectingTopicSenders = 0;
+
                 uint64_t intersection = 0;
 
                 for (int i = 0; i < numTriggeredTopics; i++) {
@@ -377,6 +385,7 @@ public:
                         /* Mark this intersection */
                         intersection |= ((uint64_t)1 << i);
                         perSubscriberIntersectingTopicMessages[numPerSubscriberIntersectingTopicMessages++] = &triggeredTopics[i]->messages;
+                        perSubscriberIntersectingTopicSenders[numPerSubscriberIntersectingTopicSenders++] = &triggeredTopics[i]->senders;
 
                         it[i]++;
                         if (it[i] == end[i]) {
@@ -397,12 +406,24 @@ public:
                 }
 
                 /* Generate cache for intersection */
-                if (intersectionCache[intersection].first.length() == 0) {
+                // if (intersectionCache[intersection].first.length() == 0) {
 
                     /* Build the union in order without duplicates */
                     std::map<unsigned int, std::pair<std::string, std::string>> complete;
                     for (int i = 0; i < numPerSubscriberIntersectingTopicMessages; i++) {
-                        complete.insert(perSubscriberIntersectingTopicMessages[i]->begin(), perSubscriberIntersectingTopicMessages[i]->end());
+                        std::map<unsigned int, std::pair<std::string, std::string>>* messages = perSubscriberIntersectingTopicMessages[i];
+                        std::map<unsigned int, Subscriber *> * senders = perSubscriberIntersectingTopicSenders[i];
+
+                        for(std::map<unsigned int, std::pair<std::string, std::string>>::iterator iter = messages->begin(); iter != messages->end(); ++iter)
+                        {
+                            unsigned int messageId =  iter->first;
+                            Subscriber* sender = senders->at(messageId);
+                            if ((sender!=NULL) && (sender==min)){
+                                continue;
+                            }
+                            std::pair<std::string, std::string> value = iter->second;
+                            complete[messageId] = value;
+                        }
                     }
 
                     /* Create the linear cache, {inflated, deflated} */
@@ -413,10 +434,10 @@ public:
                     }
 
                     cb(min, intersectionCache[intersection] = std::move(res));
-                }
-                else {
-                    cb(min, intersectionCache[intersection]);
-                }
+                // }
+                // else {
+                //     cb(min, intersectionCache[intersection]);
+                // }
 
                 min = nextMin;
             }
@@ -426,6 +447,7 @@ public:
         /* Clear messages of triggered Topics */
         for (int i = 0; i < numTriggeredTopics; i++) {
             triggeredTopics[i]->messages.clear();
+            triggeredTopics[i]->senders.clear();
             triggeredTopics[i]->triggered = false;
         }
         numTriggeredTopics = 0;
