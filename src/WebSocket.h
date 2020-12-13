@@ -56,6 +56,9 @@ public:
     /* Simple, immediate close of the socket. Emits close event */
     using Super::close;
 
+    /* Lets un-cork */
+    using Super::uncork;
+
     /* Send or buffer a WebSocket frame, compressed or not. Returns false on increased user space backpressure. */
     bool send(std::string_view message, uWS::OpCode opCode = uWS::OpCode::BINARY, bool compress = false) {
         WebSocketContextData<SSL> *webSocketContextData = (WebSocketContextData<SSL> *) us_socket_context_ext(SSL,
