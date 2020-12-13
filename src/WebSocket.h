@@ -57,6 +57,7 @@ public:
     using Super::close;
 
     /* Lets un-cork */
+    using Super::cork;
     using Super::uncork;
 
     /* Send or buffer a WebSocket frame, compressed or not. Returns false on increased user space backpressure. */
